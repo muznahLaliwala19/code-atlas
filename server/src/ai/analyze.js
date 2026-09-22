@@ -6,6 +6,7 @@ import {
   collectAspNetApisFromDisk,
 } from "./digest.js";
 import { collectDeepModulesFromDisk } from "./deep-modules.js";
+import { detectArchitectureFromDisk } from "./detect-architecture.js";
 import { collectMvcStructureFromDisk, buildMvcModuleTree } from "./mvc-scan.js";
 import { buildFeatureModules } from "./feature-modules.js";
 import { ensureCompleteFlow } from "./ensure-flow.js";
@@ -41,6 +42,8 @@ import {
   collectApplicationJoinsFromDisk,
   inferColumnPkLinks,
 } from "../db/relationship-evidence.js";
+import { walkProject } from "../scanner/walk.js";
+import { detectTechnologies } from "../scanner/detect-technologies.js";
 
 function mergeApis(...lists) {
   const map = new Map();
@@ -78,7 +81,10 @@ function mergeMvcIntoModules(deepModules, mvcTree) {
   };
 }
 
-export async function aiAnalyzeOverview(extractRoot, projectHint) {
+/**
+ * Fast path: disk-only overview (no OpenAI). Shown immediately after unzip.
+ */
+export async function scanOverviewFromDisk(extractRoot, projectHint) {
   let mvcStructure = null;
   try {
     mvcStructure = await collectMvcStructureFromDisk(extractRoot);
@@ -144,6 +150,131 @@ export async function aiAnalyzeOverview(extractRoot, projectHint) {
     console.warn("[calculations-disk]", e.message);
   }
 
+  let technologies = { languages: [], frameworks: [], others: [] };
+  try {
+    const { files } = await walkProject(extractRoot);
+    const tech = detectTechnologies(files);
+    technologies = {
+      languages: tech.languages || [],
+      frameworks: (tech.frameworks || []).filter((f) => f !== "TypeScript"),
+      others: tech.others || [],
+    };
+  } catch (e) {
+    console.warn("[tech-disk]", e.message);
+  }
+
+  let architecture = null;
+  try {
+    architecture = await detectArchitectureFromDisk(extractRoot);
+    console.log(
+      `[architecture] style=${architecture?.style || "n/a"} pattern=${architecture?.pattern || "(none)"}`
+    );
+  } catch (e) {
+    console.warn("[architecture-disk]", e.message);
+  }
+
+  let workingEvidence = {
+    menus: [],
+    workingModules: [],
+    skipped: [],
+    dataFlowEdges: [],
+  };
+  try {
+    workingEvidence = await collectWorkingFlowEvidence(extractRoot, {
+      mvcStructure: mvcStructure
+        ? {
+            routePattern: mvcStructure.routePattern,
+            controllerCount: mvcStructure.controllerCount,
+            actionCount: mvcStructure.actionCount,
+            controllers: mvcStructure.controllers,
+          }
+        : null,
+    });
+    console.log(
+      `[flow-evidence] menus=${workingEvidence.menus.length} working=${workingEvidence.workingModules.length} skipped=${workingEvidence.skipped.length} edges=${workingEvidence.dataFlowEdges.length}`
+    );
+  } catch (e) {
+    console.warn("[flow-evidence]", e.message);
+  }
+
+  const projectName = projectHint || "project";
+  const overviewBase = {
+    projectName,
+    summary: "Code scan complete — writing a clearer summary…",
+    technologies,
+    architecture,
+    modules: {
+      packages: deepModules.packages || [],
+      internal: deepModules.internal || [],
+      feature: featureModules,
+      featureTree,
+      tree: deepModules.tree || [],
+      flat: deepModules.flat || [],
+      leaves: deepModules.leaves || [],
+    },
+    mvc: mvcStructure
+      ? {
+          routePattern: mvcStructure.routePattern,
+          controllerCount: mvcStructure.controllerCount,
+          actionCount: mvcStructure.actionCount,
+          controllers: mvcStructure.controllers,
+        }
+      : null,
+    apis: diskApis,
+    database: diskDatabase,
+    calculations: [],
+    enriching: true,
+    _scanCache: {
+      diskApis,
+      diskDatabase,
+      calcCandidates,
+      deepModulesPackages: deepModules.packages || [],
+    },
+  };
+
+  const flow = ensureCompleteFlow(
+    {
+      headline: "Process flow is being prepared…",
+      notes: ["Disk evidence is ready — AI narrative loads next."],
+    },
+    workingEvidence,
+    { summary: overviewBase.summary, apis: diskApis }
+  );
+
+  return {
+    ...overviewBase,
+    flow,
+    workingEvidence: {
+      menus: workingEvidence?.menus || [],
+      workingModules: workingEvidence?.workingModules || [],
+      skipped: workingEvidence?.skipped || [],
+      dataFlowEdges: workingEvidence?.dataFlowEdges || [],
+    },
+    meta: {
+      engine: "disk",
+      enriching: true,
+      apiCount: diskApis.length,
+      apiSource: "disk+mvc",
+      moduleSource: deepModules.internal.length ? "deep-disk" : "none",
+      databaseSource: diskDatabase.length ? "disk" : "none",
+      calculationCandidates: calcCandidates.length,
+      mvcControllers: mvcStructure?.controllerCount || 0,
+      hasFlow: !!(flow?.projectFlow || []).length,
+      workingFlowModules: workingEvidence?.workingModules?.length || 0,
+      skippedUnwiredMenus: workingEvidence?.skipped?.length || 0,
+    },
+  };
+}
+
+/**
+ * Slow path: OpenAI enrichment on top of a disk scan overview.
+ */
+export async function enrichOverviewWithAi(extractRoot, projectHint, diskOverview) {
+  const cache = diskOverview?._scanCache || {};
+  const diskApis = cache.diskApis || diskOverview?.apis || [];
+  const diskDatabase = cache.diskDatabase || diskOverview?.database || [];
+  const calcCandidates = cache.calcCandidates || [];
+
   const { digest, stats } = await buildProjectDigest(extractRoot);
 
   const result = await aiChat({
@@ -177,13 +308,14 @@ export async function aiAnalyzeOverview(extractRoot, projectHint) {
       : mergeApis(diskApis, aiPassApis, aiOverviewApis);
 
   const aiPackages = result.modules?.packages || [];
-  const packages = aiPackages.length > 0 ? aiPackages : deepModules.packages || [];
+  const packages =
+    aiPackages.length > 0
+      ? aiPackages
+      : cache.deepModulesPackages || diskOverview?.modules?.packages || [];
 
-  // Disk deep-scan is source of truth for module tree (any tech).
-  // Don't let AI overwrite / flatten nested modules.
   const internal =
-    deepModules.internal.length > 0
-      ? deepModules.internal
+    (diskOverview?.modules?.internal || []).length > 0
+      ? diskOverview.modules.internal
       : result.modules?.internal || [];
 
   const database = mergeDatabaseSignals(
@@ -213,64 +345,57 @@ export async function aiAnalyzeOverview(extractRoot, projectHint) {
     }
   }
 
-  console.log(`[apis] final count: ${apis.length}`);
-  console.log(`[modules] final internal: ${internal.length} treeRoots=${(deepModules.tree || []).length}`);
+  const techFromAi = result.technologies || {};
+  const technologies = {
+    languages:
+      (techFromAi.languages || []).length > 0
+        ? techFromAi.languages
+        : diskOverview?.technologies?.languages || [],
+    frameworks:
+      (techFromAi.frameworks || []).length > 0
+        ? techFromAi.frameworks
+        : diskOverview?.technologies?.frameworks || [],
+    others:
+      (techFromAi.others || []).length > 0
+        ? techFromAi.others
+        : diskOverview?.technologies?.others || [],
+  };
 
   const overviewBase = {
-    projectName: result.projectName || projectHint || "project",
-    summary: result.summary || "",
-    technologies: {
-      languages: result.technologies?.languages || [],
-      frameworks: result.technologies?.frameworks || [],
-      others: result.technologies?.others || [],
-    },
+    projectName: result.projectName || diskOverview?.projectName || projectHint || "project",
+    summary: result.summary || diskOverview?.summary || "",
+    technologies,
+    architecture: diskOverview?.architecture || null,
     modules: {
       packages,
       internal,
-      feature: featureModules,
-      featureTree,
-      tree: deepModules.tree || [],
-      flat: deepModules.flat || [],
-      leaves: deepModules.leaves || [],
+      feature: diskOverview?.modules?.feature || [],
+      featureTree: diskOverview?.modules?.featureTree || [],
+      tree: diskOverview?.modules?.tree || [],
+      flat: diskOverview?.modules?.flat || [],
+      leaves: diskOverview?.modules?.leaves || [],
     },
-    mvc: mvcStructure
-      ? {
-          routePattern: mvcStructure.routePattern,
-          controllerCount: mvcStructure.controllerCount,
-          actionCount: mvcStructure.actionCount,
-          controllers: mvcStructure.controllers,
-        }
-      : null,
+    mvc: diskOverview?.mvc || null,
     apis,
     database,
     calculations,
+    enriching: false,
+  };
+
+  const workingEvidence = diskOverview?.workingEvidence || {
+    menus: [],
+    workingModules: [],
+    skipped: [],
+    dataFlowEdges: [],
   };
 
   let flow = null;
-  let workingEvidence = null;
-  try {
-    workingEvidence = await collectWorkingFlowEvidence(extractRoot, {
-      mvcStructure: overviewBase.mvc,
-    });
-    console.log(
-      `[flow-evidence] menus=${workingEvidence.menus.length} working=${workingEvidence.workingModules.length} skipped=${workingEvidence.skipped.length} edges=${workingEvidence.dataFlowEdges.length}`
-    );
-  } catch (e) {
-    console.warn("[flow-evidence]", e.message);
-    workingEvidence = {
-      menus: [],
-      workingModules: [],
-      skipped: [],
-      dataFlowEdges: [],
-    };
-  }
-
   try {
     const digestSnippet = [
       `PROJECT: ${overviewBase.projectName}`,
       `GOAL: overall PROCESS journey (not a module list)`,
       `WORKING_SP_TABLE_EVIDENCE: ${JSON.stringify(
-        workingEvidence.workingModules.map((m) => ({
+        (workingEvidence.workingModules || []).map((m) => ({
           menu: m.name,
           sps: m.storedProcedures,
           tables: m.tables,
@@ -278,7 +403,7 @@ export async function aiAnalyzeOverview(extractRoot, projectHint) {
         null,
         2
       ).slice(0, 10000)}`,
-      `SKIPPED_UNWIRED: ${workingEvidence.skipped.map((s) => s.name).join(", ") || "(none)"}`,
+      `SKIPPED_UNWIRED: ${(workingEvidence.skipped || []).map((s) => s.name).join(", ") || "(none)"}`,
     ].join("\n");
 
     const rawFlow = await aiChat({
@@ -299,9 +424,10 @@ export async function aiAnalyzeOverview(extractRoot, projectHint) {
 
     flow = ensureCompleteFlow(rawFlow, workingEvidence, {
       summary: overviewBase.summary,
+      apis,
     });
     console.log(
-      `[flow] working=${workingEvidence.workingModules.length} steps=${(flow.projectFlow || []).length} dataEdges=${(flow.dataFlow || []).length}`
+      `[flow] working=${(workingEvidence.workingModules || []).length} steps=${(flow.projectFlow || []).length} dataEdges=${(flow.dataFlow || []).length}`
     );
   } catch (e) {
     console.warn("[flow-ai]", e.message);
@@ -311,7 +437,7 @@ export async function aiAnalyzeOverview(extractRoot, projectHint) {
         notes: ["Flow AI failed — showing disk evidence only (menus → SP/CRUD → tables)."],
       },
       workingEvidence,
-      { summary: overviewBase.summary }
+      { summary: overviewBase.summary, apis }
     );
   }
 
@@ -326,18 +452,25 @@ export async function aiAnalyzeOverview(extractRoot, projectHint) {
     },
     meta: {
       engine: "ai",
+      enriching: false,
       digestStats: stats,
       apiCount: apis.length,
       apiSource: diskApis.length >= 10 ? "disk+mvc" : "disk+ai",
-      moduleSource: deepModules.internal.length ? "deep-disk" : "ai",
+      moduleSource: (diskOverview?.modules?.internal || []).length ? "deep-disk" : "ai",
       databaseSource: diskDatabase.length ? "disk+ai" : "ai",
       calculationCandidates: calcCandidates.length,
-      mvcControllers: mvcStructure?.controllerCount || 0,
+      mvcControllers: overviewBase.mvc?.controllerCount || 0,
       hasFlow: !!(flow?.projectFlow || []).length,
       workingFlowModules: workingEvidence?.workingModules?.length || 0,
       skippedUnwiredMenus: workingEvidence?.skipped?.length || 0,
     },
   };
+}
+
+/** Full analyze (scan + enrich) — kept for compatibility */
+export async function aiAnalyzeOverview(extractRoot, projectHint) {
+  const disk = await scanOverviewFromDisk(extractRoot, projectHint);
+  return enrichOverviewWithAi(extractRoot, projectHint, disk);
 }
 
 export async function aiExplainModule(extractRoot, moduleName, overview) {
@@ -623,7 +756,6 @@ export async function aiAnalyzeDatabase(connectionString, overview, extractRoot 
       if (Array.isArray(pageResult.notes)) pageNotes.push(...pageResult.notes);
     } catch (e) {
       console.warn(`[database] page ${pageIndex + 1} failed:`, e.message);
-      // Fallback: still include live tables without AI prose
       for (const live of pageTables) {
         mergedAiTables.push({
           name: live.name,
@@ -709,3 +841,4 @@ export async function aiAnalyzeDatabase(connectionString, overview, extractRoot 
     },
   };
 }
+

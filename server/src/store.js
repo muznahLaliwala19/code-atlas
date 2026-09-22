@@ -41,6 +41,9 @@ export async function updateProjectRecord(projectId, patch) {
       ...(patch.moduleExplanations || {}),
     };
   }
+  if (patch.overview) {
+    next.overview = patch.overview;
+  }
   if (patch.databaseAnalysis !== undefined) {
     next.databaseAnalysis = patch.databaseAnalysis;
   }

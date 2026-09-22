@@ -372,9 +372,13 @@ This is NOT the Modules list. Do NOT output one step per module/menu name.
 Write a PROCESS journey a new developer can read once and understand the business.
 
 Accuracy rules:
-- Only use stored procedures, tables, APIs, and behaviors proven in WORKING_EVIDENCE / digest (live code, not comments).
+- Only use stored procedures, tables, APIs, and behaviors proven in WORKING_EVIDENCE / digest / API SAMPLE (live code, not comments).
 - You may name modules inside a step's detail when those names appear in evidence, but step TITLES must be process stages, not bare module names.
 - NEVER invent roles such as Admin. Leave actor empty unless a role label is proven in evidence.
+- Authentication: when Login/OTP/password APIs or fields are in evidence, the Authenticate step DETAIL must name the real method (e.g. username+password, mobile+OTP, JWT). Do NOT write vague "via a backend API" if method signals exist. Do NOT invent OTP or password if not proven.
+- Happy path and projectFlow must follow the BUSINESS journey from SUMMARY (e.g. funds, beneficiaries, expenditure) — not helper/lookup APIs.
+- NEVER make "Retrieve dropdown data", "Get master lists", or Common/Get* endpoints their own flow stage. Mention lookups only inside another step's detail if needed.
+- layers.Live procedures and layers.Key tables: ONLY names that appear in WORKING_EVIDENCE storedProcedures/tables. If none, return empty arrays — NEVER invent table names from API path segments (e.g. do not turn /BeneficiaryMaster/GetAll into table BeneficiaryMaster).
 - Return STRICT JSON only.`;
 
 export function flowUserPrompt({
@@ -393,7 +397,7 @@ export function flowUserPrompt({
 
 Return JSON:
 {
-  "headline": "one sentence: what this system does overall (from evidence only)",
+  "headline": "one sentence: what this system does overall (from evidence only) — align with SUMMARY",
   "projectFlow": [
     {
       "step": 1,
@@ -416,18 +420,21 @@ Return JSON:
     { "name": "Live procedures", "items": ["SP names from evidence"] },
     { "name": "Key tables", "items": ["table names from evidence"] }
   ],
-  "happyPath": "Authenticate → … → process stages with arrows (not a module dump)",
+  "happyPath": "Business stages with arrows — same journey as projectFlow titles (no dropdown/lookup stages)",
   "notes": ["short caveats"]
 }
 
 HARD RULES:
 1. projectFlow = 5–9 PROCESS stages grounded in evidence. NEVER mirror the Modules list.
-2. BAD titles: bare module names only. GOOD titles: process stages proven by APIs/SPs in evidence.
-3. dataFlow = only REAL SP/table/API names from evidence. Do not invent.
-4. Do not invent SPs/tables/APIs. Do not treat commented-out params as active.
-5. actor MUST be "" (empty) unless WORKING_EVIDENCE / digest explicitly contains that role label (e.g. "Admin", "Manager"). NEVER invent Admin because a step is configure/delete.
-6. Detail text must NOT say "Admin" / "Admins" unless that role appears in evidence. Prefer neutral wording ("The app…", "The user…") without inventing privilege levels.
-7. Skipped/unwired menus: notes only.
+2. BAD titles: bare module names only; "Retrieve Dropdown Data"; "Load Common Masters". GOOD titles: Authenticate, Manage beneficiaries, Approve/reject, Allocate funds, Track expenditure (when proven).
+3. happyPath MUST mirror the main business stages in projectFlow (aligned with SUMMARY). Do not shorten by dropping funds/expenditure when those appear in SUMMARY/evidence. Do not insert dropdown/lookup as a happy-path stage.
+4. Authenticate detail: if API SAMPLE / digest shows OTP, password, username, mobile, JWT, captcha — name those explicitly. Example: "Users sign in with mobile number and OTP via /User/Login (or proven path)." If only a Login endpoint exists with no method signals, say method not clear from scan — do not invent.
+5. dataFlow = only REAL SP/table/API names from evidence. Do not invent.
+6. Do not invent SPs/tables/APIs. Do not treat commented-out params as active.
+7. actor MUST be "" (empty) unless WORKING_EVIDENCE / digest explicitly contains that role label (e.g. "Admin", "Manager"). NEVER invent Admin because a step is configure/delete.
+8. Detail text must NOT say "Admin" / "Admins" unless that role appears in evidence. Prefer neutral wording ("The app…", "The user…") without inventing privilege levels.
+9. Skipped/unwired menus: notes only.
+10. layers "Live procedures" / "Key tables": empty arrays when WORKING_EVIDENCE has no SPs/tables. NEVER invent table names from route segments (BeneficiaryMaster, Expenditure, LimitAllocation as path labels are NOT tables unless listed in evidence.tables).
 
 WORKING_EVIDENCE (source of truth for SPs/tables):
 ${JSON.stringify(
@@ -445,14 +452,14 @@ ${JSON.stringify(
 SKIPPED_UNWIRED:
 ${JSON.stringify(skipped.slice(0, 20), null, 2)}
 
-SUMMARY:
+SUMMARY (happy path + stages should match this business goal):
 ${summary || ""}
 
 TECH:
 ${JSON.stringify(technologies || {}, null, 2)}
 
-API SAMPLE (first 15):
-${JSON.stringify((apis || []).slice(0, 15), null, 2)}
+API SAMPLE (use for auth method + real paths; first 40):
+${JSON.stringify((apis || []).slice(0, 40), null, 2)}
 
 DATABASE SIGNALS:
 ${JSON.stringify(database || [], null, 2)}
@@ -463,7 +470,5 @@ ${JSON.stringify(
     null,
     2
   )}
-
-DIGEST:
-${(digestSnippet || "").slice(0, 10000)}`;
+${digestSnippet ? `\nDIGEST SNIPPET:\n${String(digestSnippet).slice(0, 10000)}\n` : ""}`;
 }

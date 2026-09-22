@@ -132,6 +132,7 @@ app.post("/api/analyze", upload.single("project"), async (req, res) => {
     await saveExtractPath(projectId, root);
 
     const overview = await aiAnalyzeOverview(root, projectHint);
+    const { _scanCache, ...clientOverview } = overview;
 
     const record = {
       id: projectId,
@@ -140,7 +141,7 @@ app.post("/api/analyze", upload.single("project"), async (req, res) => {
       zipName: req.file.originalname,
       zipBytes: req.file.size,
       extract: { extractedEntries: extracted, skippedArchiveEntries: skipped },
-      overview,
+      overview: clientOverview,
       moduleExplanations: {},
       databaseAnalysis: null,
       ai: getProviderInfo(),
@@ -154,10 +155,10 @@ app.post("/api/analyze", upload.single("project"), async (req, res) => {
     res.json({
       projectId,
       step: "overview",
-      ...overview,
+      ...clientOverview,
       ai: record.ai,
       meta: {
-        ...overview.meta,
+        ...clientOverview.meta,
         projectId,
         zipBytes: req.file.size,
         storedAt: path.join("data", "projects", projectId, "project.json"),

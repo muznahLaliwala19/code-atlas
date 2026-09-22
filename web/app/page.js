@@ -338,249 +338,92 @@ function buildUnifiedEndpoints(overview) {
   return rows;
 }
 
-function normToken(s) {
-  return String(s || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-}
+function stackLabelsForRow(row) {
+  const file = String(row.file || row.view || "").replace(/\\/g, "/");
+  const stack = String(row.stack || "").toLowerCase();
 
-function matchEndpointDataEvidence(row, overview) {
-  const handler = normToken(row.handler);
-  const action = normToken(row.action);
-  const flow = overview?.flow || {};
-  const edges = [
-    ...(Array.isArray(flow.dataFlow) ? flow.dataFlow : []),
-    ...(Array.isArray(overview?.workingEvidence?.dataFlowEdges)
-      ? overview.workingEvidence.dataFlowEdges
-      : []),
-  ];
-  const modules = overview?.workingEvidence?.workingModules || [];
-  const keyTables =
-    (flow.layers || []).find((l) => /table/i.test(l.name || ""))?.items || [];
-
-  // Prefer edges that mention this action/SP; only then fall back to handler-wide edges
-  const actionEdges = action
-    ? edges.filter((e) => {
-        const blob = normToken(`${e.from} ${e.to} ${e.via} ${e.detail || ""}`);
-        const viaBits = String(e.via || "")
-          .split(/[,/]/)
-          .map((x) => normToken(x))
-          .filter(Boolean);
-        return (
-          blob.includes(action) ||
-          viaBits.some((v) => v.includes(action) || action.includes(v))
-        );
-      })
-    : [];
-
-  const handlerEdges =
-    !actionEdges.length && handler
-      ? edges.filter((e) => {
-          const blob = normToken(`${e.from} ${e.to} ${e.via} ${e.detail || ""}`);
-          return blob.includes(handler);
-        })
-      : [];
-
-  const matchedEdges = actionEdges.length ? actionEdges : handlerEdges;
-
-  const matchedMod = modules.find((m) => {
-    const n = normToken(m.name || m.menu || "");
-    return n && handler && (n.includes(handler) || handler.includes(n));
-  });
-
-  const actionSps = (matchedMod?.storedProcedures || []).filter((sp) => {
-    const n = normToken(sp);
-    return action && (n.includes(action) || action.includes(n));
-  });
-
-  const tables = [
-    ...new Set([
-      ...matchedEdges.map((e) => e.to).filter(Boolean),
-      ...((matchedMod?.tables || []).filter((t) => {
-        const n = normToken(t);
-        // Only tables whose names relate to this handler — never dump whole module
-        return handler && (n.includes(handler) || handler.includes(n.slice(0, 6)));
-      }) || []),
-    ]),
-  ];
-
-  const sps = [
-    ...new Set([
-      ...matchedEdges.flatMap((e) =>
-        String(e.via || "")
-          .split(/[,/|;]/)
-          .map((x) => x.trim())
-          .filter(Boolean)
-      ),
-      ...actionSps.slice(0, 4),
-    ]),
-  ].filter((sp) => {
-    const n = normToken(sp);
-    const readAction = /^(get|list|fetch|load|find|search|index|query|read)/.test(action);
-    if (!readAction) return true;
-    if (/insert|update|delete|save|create|remove/.test(n) && !n.includes(action)) return false;
-    return true;
-  });
-
-  const preferredSps = sps.filter((sp) => {
-    const n = normToken(sp);
-    return !action || n.includes(action) || action.includes(n);
-  });
-  const finalSps = preferredSps.length ? preferredSps : sps;
-
-  let fallbackTable = null;
-  if (!tables.length && row.handler && row.handler !== "—") {
-    const hit = keyTables.find(
-      (t) => normToken(t).includes(handler) || handler.includes(normToken(t).slice(0, 6))
-    );
-    fallbackTable = hit || null;
-  }
-
-  return {
-    tables,
-    sps: finalSps,
-    fallbackTable,
-    edgeDetail: matchedEdges[0]?.detail || "",
-  };
-}
-
-/**
- * First step must not invent UI (no “opens Delete screen”).
- * Only describe what the scanned endpoint itself proves.
- */
-function triggerLabelForEndpoint(row) {
-  const method = String(row.method || "GET").toUpperCase();
-  const path = row.path || "/";
-  const action = String(row.action || "").toLowerCase();
-  const view = row.view || "";
-  const returnKind = String(row.returnKind || "").toLowerCase();
-
-  if (view && method === "GET") {
-    return `Client navigates to ${path}`;
-  }
-  if (/^delete|^remove/.test(action) || method === "DELETE") {
-    return `Client calls ${method} ${path}`;
+  if (stack === "mvc" || /Controller\.cs$/i.test(file) || /\.cshtml$/i.test(file)) {
+    return { handlerLabel: "Controller" };
   }
   if (
-    /^(add|create|insert|save|update|edit)/.test(action) ||
-    ["POST", "PUT", "PATCH"].includes(method)
+    stack.includes("react_native") ||
+    stack.includes("react-native") ||
+    /\/(screens|components)\//i.test(file)
   ) {
-    return `Client submits ${method} ${path}`;
+    return { handlerLabel: "Screen / handler" };
   }
-  if (/^(getall|list|index|fetch|load|find|search)/.test(action)) {
-    return `Client requests ${method} ${path}`;
+  if (
+    stack === "next" ||
+    stack.includes("next") ||
+    /route\.(js|ts)$/i.test(file) ||
+    /\/app\/api\//i.test(file) ||
+    /\/pages\/api\//i.test(file) ||
+    /\/api\//i.test(file)
+  ) {
+    return { handlerLabel: "Route handler" };
   }
-  if (returnKind === "partial") {
-    return `Client requests ${method} ${path} (partial response)`;
+  if (/\.dart$/i.test(file) || stack.includes("flutter") || stack.includes("dart")) {
+    return { handlerLabel: "Screen / handler" };
   }
-  return `Client requests ${method} ${path}`;
-}
-
-function clientLayerLabel(row) {
-  const view = row.view || "";
-  const returnKind = String(row.returnKind || "").toLowerCase();
-  const handler = row.handler || "Handler";
-  const action = row.action || "action";
-
-  if (view) return `View: ${view}`;
-  if (returnKind === "partial") {
-    return `Partial response (${returnKind}) — no dedicated “${action}” page in scan`;
+  if (/\.py$/i.test(file) || stack.includes("python") || stack.includes("django") || stack.includes("flask")) {
+    return { handlerLabel: "View / endpoint" };
   }
-  if (returnKind === "view" || returnKind === "page") {
-    return `View result (${returnKind}) for ${handler}/${action}`;
-  }
-  if (returnKind) return `Controller returns ${returnKind}`;
-  return `No dedicated view linked for ${handler}/${action} in scan`;
+  return { handlerLabel: "Handler" };
 }
 
 /**
- * Vertical steps from scanned endpoint evidence only — no invented screens/buttons.
+ * Detail card — API endpoint + controller/handler only.
  */
-function buildDetailFlowSteps(row, overview) {
+function buildEndpointEvidencePack(row) {
   const method = String(row.method || "GET").toUpperCase();
   const path = row.path || "/";
-  const handler = row.handler || "Handler";
-  const action = row.action || "action";
-  const purpose = row.purpose || inferEndpointPurpose(row);
-  const returnKind = String(row.returnKind || "").toLowerCase();
-  const view = row.view || "";
+  const handler = row.handler && row.handler !== "—" ? row.handler : null;
+  const action = row.action && row.action !== "—" ? row.action : null;
+  const file = row.file || "";
   const params = row.params || "";
+  const labels = stackLabelsForRow(row);
 
-  const controllerLabel = /controller/i.test(handler)
-    ? `${handler}.${action}(${params || ""})`
-    : `${handler}Controller.${action}(${params || ""})`;
-  const { tables, sps, fallbackTable, edgeDetail } = matchEndpointDataEvidence(row, overview);
+  const apiValue = `${method} ${path}${params ? ` (${params})` : ""}`;
 
-  const isDelete = /^delete|^remove/i.test(action) || /delete/i.test(purpose);
-  const isRead =
-    !isDelete &&
-    (/fetch|list|read|detail|get/i.test(purpose) ||
-      /^(get|list|index|fetch|load|find|search|view|show)/i.test(action));
-  const isPageOpen = method === "GET" && !!view && !isDelete;
-
-  let dataLabel = "Table / SP (not proven for this action in scan evidence yet)";
-  if (sps.length && tables.length) {
-    dataLabel = `SP: ${sps.slice(0, 2).join(", ")} → Table: ${tables.slice(0, 3).join(", ")}`;
-  } else if (tables.length) {
-    dataLabel = `Table: ${tables.slice(0, 3).join(", ")}`;
-  } else if (sps.length) {
-    dataLabel = `SP / data command: ${sps.slice(0, 3).join(", ")}`;
-  } else if (fallbackTable) {
-    dataLabel = `Naming hint only: ${fallbackTable} — confirm in Database step`;
+  let handlerValue = "Not proven in scan";
+  let handlerProven = false;
+  if (handler && action) {
+    const fn = `${handler}.${action}()`;
+    handlerValue = file ? `${file} → ${fn}` : fn;
+    handlerProven = true;
+  } else if (file) {
+    handlerValue = file;
+    handlerProven = true;
   }
-
-  let note = edgeDetail || "";
-  if (!note) {
-    if (isDelete) {
-      note =
-        "Scan shows a Delete action — not a Delete page. Any UI that calls this URL must come from a view/script reference in code, not assumed.";
-    } else if (isPageOpen) {
-      note = `Loads view ${view}. Separate POST/Save actions handle writes when present in code.`;
-    } else if (isRead) {
-      note = "Read/list action from method + action name in scan.";
-    } else if (returnKind === "partial") {
-      note = "Controller returns a partial (often ajax notification), not a full screen.";
-    }
-  }
-
-  const dataAccessLabel = isDelete
-    ? "Repository / data access (delete)"
-    : isRead
-      ? "Service / data access (read)"
-      : "Service / data access";
 
   return {
-    title: `${method} ${path} flow`,
-    steps: [
-      triggerLabelForEndpoint(row),
-      clientLayerLabel(row),
-      `${method} ${path}${params ? ` (${params})` : ""}`,
-      controllerLabel,
-      dataAccessLabel,
-      dataLabel,
+    title: `Endpoint: ${method} ${path}`,
+    layers: [
+      { label: "Endpoint", value: apiValue, proven: true },
+      { label: labels.handlerLabel, value: handlerValue, proven: handlerProven },
     ],
-    note,
   };
 }
 
-function EndpointDetailFlow({ row, overview }) {
-  const pack = useMemo(() => buildDetailFlowSteps(row, overview), [row, overview]);
+function EndpointDetailFlow({ row }) {
+  const pack = useMemo(() => buildEndpointEvidencePack(row), [row]);
   return (
     <div className={styles.endpointDetailFlow}>
       <p className={styles.endpointDetailFlowTitle}>{pack.title}</p>
-      <div className={styles.endpointDetailFlowStack}>
-        {pack.steps.map((step, i) => (
-          <div key={`${i}-${step}`} className={styles.endpointDetailFlowItem}>
-            <span className={styles.endpointDetailFlowLabel}>{step}</span>
-            {i < pack.steps.length - 1 ? (
-              <span className={styles.endpointDetailFlowDown} aria-hidden>
-                ↓
-              </span>
-            ) : null}
+      <div className={styles.evidenceCard}>
+        {pack.layers.map((layer) => (
+          <div key={layer.label} className={styles.evidenceLayer}>
+            <span className={styles.evidenceLayerLabel}>{layer.label}</span>
+            <span
+              className={`${styles.evidenceLayerValue} ${
+                layer.proven ? "" : styles.evidenceLayerUnproven
+              }`}
+            >
+              {layer.value}
+            </span>
           </div>
         ))}
       </div>
-      {pack.note ? <p className={styles.endpointDetailFlowNote}>{pack.note}</p> : null}
     </div>
   );
 }
@@ -795,7 +638,7 @@ function EndpointsPanel({ overview }) {
                       {isOpen ? (
                         <tr className={styles.endpointFlowRow}>
                           <td colSpan={5}>
-                            <EndpointDetailFlow row={row} overview={overview} />
+                            <EndpointDetailFlow row={row} />
                           </td>
                         </tr>
                       ) : null}
@@ -1415,8 +1258,44 @@ export default function HomePage() {
           </Section>
 
           <Section
-            title="Modules"
-            subtitle="Deep scan for any stack — nested folders / features / controllers"
+            title="Architecture"
+            subtitle="Request path inferred from folders in this zip — layers only when present"
+          >
+            {overview.architecture?.pattern ? (
+              <div className={styles.archCard}>
+                <ol className={styles.archFlow}>
+                  {[
+                    ...(overview.architecture.layers || []),
+                    ...(/→\s*Response$/i.test(overview.architecture.pattern || "")
+                      ? ["Response"]
+                      : []),
+                  ].map((layer, i, arr) => (
+                    <li key={`${layer}-${i}`} className={styles.archStep}>
+                      <span className={styles.archStepLabel}>{layer}</span>
+                      {i < arr.length - 1 ? (
+                        <span className={styles.archArrow} aria-hidden>
+                          ↓
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+                <p className={styles.archPatternLine}>{overview.architecture.pattern}</p>
+                {overview.architecture.note ? (
+                  <p className={styles.archNote}>{overview.architecture.note}</p>
+                ) : null}
+              </div>
+            ) : (
+              <p className={styles.empty}>
+                {overview.architecture?.note ||
+                  "Not enough folder signals to infer architecture for this project."}
+              </p>
+            )}
+          </Section>
+
+          <Section
+            title="Dependencies & features"
+            subtitle="Packages the project uses, plus features found from controllers, screens, and folders"
           >
             <div className={styles.split}>
               <div>
@@ -1430,7 +1309,7 @@ export default function HomePage() {
                 </div>
               </div>
               <div>
-                <h3>Module tree</h3>
+                <h3>Feature tree</h3>
                 {(overview.modules?.tree || []).length > 0 ? (
                   <div className={styles.listScroll}>
                     <ModuleTree tree={overview.modules.tree} />

@@ -67,6 +67,151 @@ export function sanitizeFlowDetail(detail, evidence) {
   return d;
 }
 
+/** Lookup / common-master stages — not main business journey */
+function isSupportNoiseStage(step) {
+  const title = norm(step?.title);
+  const detail = String(step?.detail || "").toLowerCase();
+  if (/dropdown|lookup|masterlist|commonmaster|retrievemaster/.test(title)) return true;
+  if (/^get(all)?(type|types|list|dropdown)/.test(title)) return true;
+  if (
+    /retrieve\s+dropdown|dropdown\s+data|load\s+(common\s+)?masters?|common\/get/i.test(
+      `${step?.title || ""} ${detail}`
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function happyPathHasNoise(happyPath) {
+  return /dropdown|lookup|common\/get|retrieve\s+dropdown/i.test(String(happyPath || ""));
+}
+
+/**
+ * Infer auth method from APIs + working evidence — never invent OTP/password.
+ */
+export function inferAuthMethod(evidence = {}, apis = []) {
+  const apiBlob = JSON.stringify(apis || []).toLowerCase();
+  const workBlob = JSON.stringify(evidence?.workingModules || []).toLowerCase();
+  const blob = `${apiBlob}\n${workBlob}`;
+
+  const loginApis = (apis || []).filter((a) => {
+    const p = `${a.path || ""} ${a.name || ""} ${a.action || ""}`.toLowerCase();
+    return /login|signin|sign_in|authenticate|auth\/|otp|verifyotp|sendotp/.test(p);
+  });
+  const loginPaths = loginApis
+    .map((a) => a.path || a.name)
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const hasOtp = /\botp\b|sendotp|verifyotp|mobileotp|phone.?otp|otpverify/.test(blob);
+  const hasPassword = /\bpassword\b|passwd|pwd\b/.test(blob);
+  const hasUsername = /\busername\b|user_name|userid\b|user_id\b/.test(blob);
+  const hasMobile = /\bmobile\b|\bphone\b|mobileno|phone_number|phonenumber/.test(blob);
+  const hasCaptcha = /\bcaptcha\b/.test(blob);
+  const hasJwt = /\bjwt\b|jsonwebtoken|bearer\s*token|access_token/.test(blob);
+  const hasLoginSignal =
+    loginApis.length > 0 || /\blogin\b|signin|authenticate/.test(blob);
+
+  if (!hasLoginSignal && !hasOtp && !hasPassword) {
+    return { label: null, detail: null, paths: loginPaths };
+  }
+
+  const parts = [];
+  if (hasOtp && (hasMobile || hasUsername || hasLoginSignal)) {
+    if (hasMobile || /sendotp|mobile/.test(blob)) {
+      parts.push("mobile number and OTP");
+    } else {
+      parts.push("OTP verification");
+    }
+  } else if (hasOtp) {
+    parts.push("OTP verification");
+  }
+  if (hasPassword && (hasUsername || hasLoginSignal)) {
+    parts.push(hasUsername ? "username and password" : "password");
+  } else if (hasPassword) {
+    parts.push("password");
+  }
+  if (hasCaptcha) parts.push("captcha");
+  if (hasJwt) parts.push("JWT/session token");
+
+  let methodLabel = null;
+  if (hasOtp && hasPassword) methodLabel = "password and/or OTP";
+  else if (hasOtp) methodLabel = hasMobile || /sendotp|mobile/.test(blob) ? "mobile + OTP" : "OTP";
+  else if (hasPassword) methodLabel = hasUsername ? "username + password" : "password";
+  else if (hasLoginSignal) methodLabel = "login endpoint (method not clear from scan)";
+
+  const pathBit = loginPaths.length ? ` via ${loginPaths.join(", ")}` : "";
+  let detail = null;
+  if (parts.length) {
+    detail = `Users authenticate with ${parts.join(", ")}${pathBit}.`;
+  } else if (hasLoginSignal) {
+    detail = `Users sign in through a login API${pathBit}; exact credentials (password vs OTP) are not clear from the scan.`;
+  }
+
+  return { label: methodLabel, detail, paths: loginPaths };
+}
+
+function isVagueAuthDetail(detail) {
+  const d = String(detail || "").toLowerCase();
+  if (!d) return true;
+  if (/otp|password|username|mobile|captcha|jwt/.test(d)) return false;
+  return (
+    /facilitates user authentication|through a backend api|ensuring secure access|secure access to the system/.test(
+      d
+    ) || (/authentication/.test(d) && d.length < 120 && !/\/[a-z]/i.test(d))
+  );
+}
+
+function enrichAuthSteps(projectFlow, evidence, apis) {
+  const auth = inferAuthMethod(evidence, apis);
+  if (!auth.detail) return projectFlow;
+
+  return projectFlow.map((s) => {
+    const title = norm(s.title);
+    if (!/auth|login|sign.?in|authenticate/.test(title)) return s;
+    if (!isVagueAuthDetail(s.detail)) return s;
+    return {
+      ...s,
+      detail: sanitizeFlowDetail(auth.detail, evidence),
+    };
+  });
+}
+
+function dropSupportNoiseStages(projectFlow) {
+  const kept = (projectFlow || []).filter((s) => !isSupportNoiseStage(s));
+  // Keep enough stages; if we stripped too much, fall back to original
+  if (kept.length >= 3) {
+    return kept.map((s, i) => ({ ...s, step: i + 1 }));
+  }
+  return (projectFlow || []).map((s, i) => ({ ...s, step: i + 1 }));
+}
+
+function buildBusinessHappyPath(projectFlow, aiHappyPath, evidence) {
+  const fromSteps = (projectFlow || [])
+    .filter((s) => !isSupportNoiseStage(s))
+    .map((s) => s.title)
+    .filter(Boolean);
+
+  const stepNorms = new Set(fromSteps.map((t) => norm(t)));
+  const aiPath = String(aiHappyPath || "").trim();
+  if (aiPath && !happyPathHasNoise(aiPath)) {
+    const aiParts = aiPath
+      .split(/\s*→\s*|\s*->\s*/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .filter((t) => {
+        const n = norm(t);
+        return stepNorms.has(n) || [...stepNorms].some((s) => s.includes(n) || n.includes(s));
+      });
+    if (aiParts.length >= Math.min(3, fromSteps.length) && aiParts.length) {
+      return sanitizeFlowDetail(aiParts.join(" → "), evidence);
+    }
+  }
+
+  return fromSteps.join(" → ");
+}
+
 function collectAllowedNames(evidence = {}) {
   const working = evidence.workingModules || [];
   const sps = new Set();
@@ -121,7 +266,7 @@ export function buildProcessStagesFromEvidence(evidence = {}) {
       step: 1,
       title: "Authenticate",
       actor: "",
-      detail: "Sign-in / session entry when present in the project.",
+      detail: "Sign-in when a login/OTP/password path is present in the project.",
     },
     {
       step: 2,
@@ -188,6 +333,36 @@ export function buildProcessStagesFromEvidence(evidence = {}) {
         : "Beneficiaries are maintained so expenditure can be tagged to payees.",
       modules: m ? [m.name] : [],
     });
+  }
+
+  if (has("approvereject", "approve", "reject") && has("beneficiary")) {
+    const m = findMod("beneficiary");
+    stages.push({
+      step: n++,
+      title: "Approve / reject beneficiaries",
+      actor: "",
+      detail:
+        "Beneficiary records can be approved or rejected through the wired approval API when present.",
+      modules: m ? [m.name] : [],
+    });
+  }
+
+  if (has("fund", "allocation", "limitallocation", "savelimit", "limithistory")) {
+    const m = findMod("fund", "allocation", "limitallocation", "limit");
+    if (!stages.some((s) => /allocate limits/i.test(s.title))) {
+      const sps = (m?.storedProcedures || []).filter((s) => /limit|alloc|fund/i.test(s)).slice(0, 3);
+      stages.push({
+        step: n++,
+        title: "Allocate funds / limits",
+        actor: "",
+        detail:
+          sps.length
+            ? `Fund or limit allocation runs via ${sps.join(", ")}.`
+            : m?.summary ||
+              "Funds or department limits are allocated so later spending has a balance to draw from.",
+        modules: m ? [m.name] : [],
+      });
+    }
   }
 
   if (has("expenditure", "saveexpenditure")) {
@@ -326,8 +501,10 @@ export function buildOverallDataFlow(evidence = {}) {
 
 /**
  * Prefer AI overall process flow; reject module-list dumps; keep SP/table accuracy.
+ * Also: name real auth methods when proven; drop dropdown/lookup as journey stages;
+ * rebuild happy path as the business journey.
  */
-export function ensureCompleteFlow(aiFlow, evidence = {}, { summary = "" } = {}) {
+export function ensureCompleteFlow(aiFlow, evidence = {}, { summary = "", apis = [] } = {}) {
   const ai = aiFlow && typeof aiFlow === "object" ? aiFlow : {};
   const { working } = collectAllowedNames(evidence);
   const skipped = evidence.skipped || [];
@@ -345,13 +522,15 @@ export function ensureCompleteFlow(aiFlow, evidence = {}, { summary = "" } = {})
       modules: Array.isArray(s.modules) ? s.modules : undefined,
     }));
   } else {
-    // AI dumped modules or failed — use process stages
     projectFlow = processFallback.map((s) => ({
       ...s,
       actor: sanitizeFlowActor(s.actor, evidence),
       detail: sanitizeFlowDetail(s.detail, evidence),
     }));
   }
+
+  projectFlow = dropSupportNoiseStages(projectFlow);
+  projectFlow = enrichAuthSteps(projectFlow, evidence, apis);
 
   // Data flow: prefer compact overall edges; allow AI edges only if they cite real SPs/tables
   const allowed = collectAllowedNames(evidence);
@@ -361,7 +540,6 @@ export function ensureCompleteFlow(aiFlow, evidence = {}, { summary = "" } = {})
   const validatedAiEdges = aiEdges.filter((e) => {
     const blob = norm(`${e.from} ${e.to} ${e.via} ${e.detail}`);
     if (!working.length) return false;
-    // must mention at least one real SP or table or working module
     const hitSp = [...allowed.sps].some((sp) => sp && blob.includes(sp));
     const hitTbl = [...allowed.tables].some((t) => t && blob.includes(t));
     const hitMod = [...allowed.modules].some((m) => m && blob.includes(m));
@@ -376,42 +554,57 @@ export function ensureCompleteFlow(aiFlow, evidence = {}, { summary = "" } = {})
     evidence: e.evidence || [],
   }));
 
-  const happyPath =
-    ai.happyPath && !looksLikeModuleDump(
-      String(ai.happyPath)
-        .split(/\s*→\s*|\s*->\s*/)
-        .map((t) => ({ title: t })),
-      working
-    )
-      ? sanitizeFlowDetail(ai.happyPath, evidence)
-      : projectFlow.map((s) => s.title).join(" → ");
+  // Drop steps the model admits are not in evidence
+  projectFlow = projectFlow
+    .filter((s) => {
+      const blob = `${s.title || ""} ${s.detail || ""}`;
+      if (
+        /not explicitly listed|not (found )?in (scan )?evidence|inferred only|cannot be determined|\(not in evidence\)/i.test(
+          blob
+        )
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .map((s, i) => ({ ...s, step: i + 1 }));
 
-  const layers =
-    Array.isArray(ai.layers) && ai.layers.length >= 2
-      ? ai.layers.map((layer) => ({
-          ...layer,
-          items: Array.isArray(layer.items)
-            ? layer.items.map((item) => sanitizeFlowDetail(item, evidence))
-            : layer.items,
-        }))
-      : [
-          {
-            name: "User journey",
-            items: projectFlow.map((s) => s.title),
-          },
-          {
-            name: "Live procedures",
-            items: [...new Set(working.flatMap((m) => m.storedProcedures || []))].slice(0, 12),
-          },
-          {
-            name: "Key tables",
-            items: [...new Set(working.flatMap((m) => m.tables || []))].slice(0, 12),
-          },
-        ];
+  const happyPath = buildBusinessHappyPath(projectFlow, ai.happyPath, evidence);
+
+  const provenSps = [
+    ...new Set(working.flatMap((m) => m.storedProcedures || []).filter(Boolean)),
+  ].slice(0, 12);
+  const provenTables = [
+    ...new Set(working.flatMap((m) => m.tables || []).filter(Boolean)),
+  ].slice(0, 12);
+
+  // Live procedures + Key tables: evidence only — never keep AI-invented names
+  const layers = [
+    {
+      name: "User journey",
+      items: projectFlow.map((s) => s.title).filter(Boolean),
+    },
+    {
+      name: "Live procedures",
+      items: provenSps,
+    },
+    {
+      name: "Key tables",
+      items: provenTables,
+    },
+  ];
 
   const notes = [
-    ...(Array.isArray(ai.notes) ? ai.notes.map((n) => sanitizeFlowDetail(n, evidence)) : []),
+    ...(Array.isArray(ai.notes)
+      ? ai.notes
+          .map((n) => sanitizeFlowDetail(n, evidence))
+          .filter((n) => n && !/not explicitly listed/i.test(n))
+      : []),
     "Flow is the overall system journey — not a copy of the Modules list.",
+    "Live procedures and key tables list only names proven in scan evidence — never assumed from API path labels.",
+    !provenSps.length && !provenTables.length
+      ? "No stored procedures or database tables were proven in this scan (client/API-only projects often have none until a live DB step)."
+      : null,
     skipped.length
       ? `Menus without live SP/CRUD were not used as flow evidence: ${skipped
           .slice(0, 8)

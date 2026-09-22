@@ -591,6 +591,62 @@
   grid-template-columns: repeat(3, 1fr);
 }
 
+.archCard {
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(140, 200, 170, 0.22);
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.archFlow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.archStep {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.archStepLabel {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #f2fff8;
+  line-height: 1.4;
+}
+
+.archArrow {
+  display: block;
+  padding: 2px 0 2px 10px;
+  color: var(--accent);
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.9;
+}
+
+.archPatternLine {
+  margin: 14px 0 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.82rem;
+  color: #9ff5c8;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.archNote {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  color: #8fb9a8;
+  line-height: 1.4;
+}
+
 .split {
   grid-template-columns: 1.2fr 1fr;
   align-items: start;
@@ -1238,7 +1294,7 @@
 }
 
 .endpointDetailFlow {
-  max-width: 640px;
+  max-width: 720px;
 }
 
 .endpointDetailFlowTitle {
@@ -1247,6 +1303,74 @@
   font-size: 0.9rem;
   color: var(--accent);
   font-weight: 700;
+}
+
+.evidenceCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(140, 200, 170, 0.22);
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.evidenceLayer {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 9.5rem) minmax(0, 1fr);
+  gap: 10px 14px;
+  align-items: start;
+}
+
+.evidenceLayerLabel {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9ff5c8;
+  padding-top: 2px;
+}
+
+.evidenceLayerValue {
+  color: #f2fff8;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  word-break: break-word;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.evidenceLayerUnproven {
+  color: #8fb9a8;
+  font-style: italic;
+}
+
+.evidenceLinks {
+  margin-top: 14px;
+}
+
+.evidenceLinksTitle {
+  margin: 0 0 6px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9ff5c8;
+}
+
+.evidenceLinks ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #cfe7da;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.evidenceLinksEmpty {
+  margin: 12px 0 0;
+  color: #8fb9a8;
+  font-size: 0.84rem;
+  font-style: italic;
 }
 
 .endpointDetailFlowStack {

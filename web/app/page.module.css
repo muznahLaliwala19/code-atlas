@@ -165,8 +165,7 @@
   text-transform: uppercase;
 }
 
-.heroCopy h1,
-.reportTitle {
+.heroCopy h1 {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 800;
@@ -364,23 +363,84 @@
 }
 
 .reportHero {
+  --hero-kicker-to-title: 12px;
+  --hero-title-to-summary: 14px;
   display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  align-items: flex-end;
-  padding: 8px 0 6px;
+  flex-direction: column;
+  align-items: stretch;
+  flex: 0 0 auto;
+  width: 100%;
+  gap: 0;
+  padding: 8px 0 0;
+  margin: 0;
+}
+
+.reportHero > .kicker {
+  margin: 0 0 var(--hero-kicker-to-title);
+}
+
+.reportHero > .reportTitle {
+  margin: 0 !important;
+}
+
+/*
+ * Summary + buttons: always the same geometry.
+ * Left cell is capped at 62ch but column is 1fr so buttons stay on the
+ * right edge; summary box has a 2-line min-height so short AI headlines
+ * don’t leave buttons floating / spacing looking “random”.
+ */
+.reportHeroBottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: end;
+  column-gap: 28px;
+  row-gap: 12px;
+  margin-top: var(--hero-title-to-summary);
+  width: 100%;
+  flex: 0 0 auto;
+}
+
+.reportHeroSummary {
+  max-width: 62ch;
+  min-height: calc(0.95rem * 1.55 * 2);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 
 .reportTitle {
-  font-size: clamp(2.2rem, 5vw, 3.4rem) !important;
+  margin: 0 !important;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(1.9rem, 4.8vw, 3.15rem) !important;
+  line-height: 1.05 !important;
+  letter-spacing: -0.04em !important;
+  max-width: 100%;
+  hyphens: none;
+  -webkit-hyphens: none;
+  word-break: keep-all;
+  overflow-wrap: normal;
+}
+
+.reportTitleLine {
+  display: block;
+  white-space: nowrap;
 }
 
 .metaLine {
-  margin: 10px 0 0;
+  margin: 0;
   color: var(--muted);
   font-size: 0.95rem;
   line-height: 1.55;
-  max-width: 62ch;
+}
+
+.reportActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  align-self: end;
 }
 
 .path {
@@ -468,13 +528,6 @@
   text-transform: uppercase;
   color: #d2ebe0;
   font-family: var(--font-mono);
-}
-
-.reportActions {
-  display: flex;
-  gap: 14px;
-  flex-shrink: 0;
-  align-items: center;
 }
 
 .statRow {
@@ -810,7 +863,8 @@
   text-transform: capitalize;
 }
 
-.stepItem span {
+.stepItem span.stepNum,
+.stepNum {
   width: 20px;
   height: 20px;
   border-radius: 50%;
@@ -819,6 +873,11 @@
   background: rgba(255, 255, 255, 0.06);
   font-family: var(--font-mono);
   font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+.stepLabel {
+  text-transform: capitalize;
 }
 
 .stepActive {
@@ -1998,6 +2057,14 @@
   color: #c5d8e8;
 }
 
+.layerCard .empty {
+  margin: 4px 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
 @media (max-width: 800px) {
   .layerGrid {
     grid-template-columns: 1fr;
@@ -2035,6 +2102,20 @@
     align-items: flex-start;
   }
 
+  .brandLogo {
+    max-width: min(340px, 88vw);
+    height: 44px;
+  }
+
+  .stepper {
+    gap: 6px;
+  }
+
+  .stepItem {
+    padding: 7px 10px;
+    font-size: 0.74rem;
+  }
+
   .techGrid,
   .split,
   .statRow {
@@ -2042,11 +2123,64 @@
   }
 
   .reportHero {
-    flex-direction: column;
-    align-items: flex-start;
+    gap: 0;
+  }
+
+  .reportHeroBottom {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    margin-top: 14px;
+  }
+
+  .reportHeroSummary {
+    min-height: 0;
+    max-width: 100%;
+  }
+
+  .reportTitle {
+    font-size: clamp(1.5rem, 6.5vw, 2.25rem) !important;
+  }
+
+  .reportTitleLine {
+    white-space: normal;
+  }
+
+  .reportActions {
+    width: 100%;
+    justify-content: flex-start;
+    align-self: stretch;
+  }
+
+  .reportActions > button {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .section {
+    padding: 16px;
   }
 
   .dropInner {
     min-height: 260px;
+  }
+}
+
+@media (max-width: 520px) {
+  .reportActions {
+    flex-direction: column;
+  }
+
+  .reportActions > button {
+    width: 100%;
+  }
+
+  .stepLabel {
+    display: none;
+  }
+
+  .stepItem {
+    min-width: 2.35rem;
+    justify-content: center;
+    padding: 8px;
   }
 }

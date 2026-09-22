@@ -10,6 +10,70 @@ const DB_TABLES_PER_PAGE = 8;
 const ACTIONS_PER_PAGE = 10;
 const CALCS_PER_PAGE = 5;
 
+/**
+ * Folder name → display lines (joining with "_" restores the original name).
+ * smart_city_react_native_citizen →
+ *   smart_city
+ *   react_native
+ *   citizen
+ */
+function formatProjectTitleLines(name) {
+  const raw = String(name || "project").trim();
+  if (!raw) return ["project"];
+
+  const delim = raw.includes("_") ? "_" : raw.includes("-") ? "-" : null;
+  if (!delim) return [raw];
+
+  const parts = raw.split(delim).filter(Boolean);
+  if (parts.length <= 1) return [raw];
+  if (parts.length === 2) return [parts.join(delim)];
+  if (parts.length === 3) return [parts.slice(0, 2).join(delim), parts[2]];
+
+  // Pair left-to-right into up to 3 lines (5 parts → 2+2+1)
+  const lines = [];
+  let i = 0;
+  while (i < parts.length) {
+    if (lines.length >= 2) {
+      lines.push(parts.slice(i).join(delim));
+      break;
+    }
+    const take = Math.min(2, parts.length - i);
+    lines.push(parts.slice(i, i + take).join(delim));
+    i += take;
+  }
+  return lines;
+}
+
+function ProjectTitle({ name }) {
+  const full = String(name || "project").trim() || "project";
+  const lines = useMemo(() => formatProjectTitleLines(full), [full]);
+  return (
+    <h1 className={styles.reportTitle} title={full}>
+      {lines.map((line, i) => (
+        <span key={`${i}-${line}`} className={styles.reportTitleLine}>
+          {line}
+        </span>
+      ))}
+    </h1>
+  );
+}
+
+/** Shared hero — fixed spacing on every step (short or long summary) */
+function ReportStepHero({ kicker, title, summary, children }) {
+  return (
+    <div className={styles.reportHero}>
+      <p className={styles.kicker}>{kicker}</p>
+      <ProjectTitle name={title} />
+      <div className={styles.reportHeroBottom}>
+        <div className={styles.reportHeroSummary}>
+          <p className={styles.metaLine}>{summary}</p>
+        </div>
+        <div className={styles.reportActions}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
 function Chip({ children, tone = "default", onClick, active }) {
   return (
     <button
@@ -1216,8 +1280,8 @@ export default function HomePage() {
               STEPS.indexOf(step) > i ? styles.stepDone : ""
             }`}
           >
-            <span>{i + 1}</span>
-            {s}
+            <span className={styles.stepNum}>{i + 1}</span>
+            <span className={styles.stepLabel}>{s}</span>
           </div>
         ))}
       </nav>
@@ -1300,25 +1364,22 @@ export default function HomePage() {
 
       {step === "overview" && overview && (
         <div className={styles.reportWrap}>
-          <div className={styles.reportHero}>
-            <div>
-              <p className={styles.kicker}>Step 1 · Overview</p>
-              <h1 className={styles.reportTitle}>{overview.projectName}</h1>
-              <p className={styles.metaLine}>{overview.summary}</p>
-            </div>
-            <div className={styles.reportActions}>
-              <button type="button" className={styles.btnSecondary} onClick={reset}>
-                New scan
-              </button>
-              <button
-                type="button"
-                className={styles.btnPrimary}
-                onClick={() => setStep("flow")}
-              >
-                Next: Flow →
-              </button>
-            </div>
-          </div>
+          <ReportStepHero
+            kicker="Step 1 · Overview"
+            title={overview.projectName}
+            summary={overview.summary}
+          >
+            <button type="button" className={styles.btnSecondary} onClick={reset}>
+              New scan
+            </button>
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={() => setStep("flow")}
+            >
+              Next: Flow →
+            </button>
+          </ReportStepHero>
 
           <Section title="Technologies" subtitle="Detected from the project">
             <div className={styles.techGrid}>
@@ -1456,31 +1517,28 @@ export default function HomePage() {
 
       {step === "flow" && overview && (
         <div className={styles.reportWrap}>
-          <div className={styles.reportHero}>
-            <div>
-              <p className={styles.kicker}>Step 2 · Overall project flow</p>
-              <h1 className={styles.reportTitle}>Flow</h1>
-              <p className={styles.metaLine}>
-                {overview.flow?.headline ||
-                  "How the whole system works end-to-end — process journey, not a module list"}
-              </p>
-            </div>
-            <div className={styles.reportActions}>
-              <button type="button" className={styles.btnSecondary} onClick={() => setStep("overview")}>
-                ← Overview
-              </button>
-              <button
-                type="button"
-                className={styles.btnPrimary}
-                onClick={() => setStep("module")}
-                disabled={
-                  !(overview.modules?.feature?.length || overview.modules?.internal?.length)
-                }
-              >
-                Next: Modules →
-              </button>
-            </div>
-          </div>
+          <ReportStepHero
+            kicker="Step 2 · Overall project flow"
+            title="Flow"
+            summary={
+              overview.flow?.headline ||
+              "How the whole system works end-to-end — process journey, not a module list"
+            }
+          >
+            <button type="button" className={styles.btnSecondary} onClick={() => setStep("overview")}>
+              ← Overview
+            </button>
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={() => setStep("module")}
+              disabled={
+                !(overview.modules?.feature?.length || overview.modules?.internal?.length)
+              }
+            >
+              Next: Modules →
+            </button>
+          </ReportStepHero>
 
           {!overview.flow ? (
             <Section title="Flow" subtitle="Not generated yet">
@@ -1554,16 +1612,32 @@ export default function HomePage() {
               {(overview.flow.layers || []).length > 0 && (
                 <Section title="Layers" subtitle="Architecture at a glance">
                   <div className={styles.layerGrid}>
-                    {overview.flow.layers.map((layer, i) => (
-                      <article key={i} className={styles.layerCard}>
-                        <h3>{layer.name}</h3>
-                        <ul>
-                          {(layer.items || []).map((item, j) => (
-                            <li key={`${i}-${item}-${j}`}>{item}</li>
-                          ))}
-                        </ul>
-                      </article>
-                    ))}
+                    {overview.flow.layers.map((layer, i) => {
+                      const items = layer.items || [];
+                      const name = String(layer.name || "");
+                      let emptyMsg = "Nothing found in scan evidence";
+                      if (/procedure|sp\b/i.test(name)) {
+                        emptyMsg = "No live procedures from scan evidence";
+                      } else if (/table/i.test(name)) {
+                        emptyMsg = "No key tables from scan evidence";
+                      } else if (/journey|user/i.test(name)) {
+                        emptyMsg = "No user-journey steps from scan evidence";
+                      }
+                      return (
+                        <article key={i} className={styles.layerCard}>
+                          <h3>{layer.name}</h3>
+                          {items.length ? (
+                            <ul>
+                              {items.map((item, j) => (
+                                <li key={`${i}-${item}-${j}`}>{item}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className={styles.empty}>{emptyMsg}</p>
+                          )}
+                        </article>
+                      );
+                    })}
                   </div>
                 </Section>
               )}
@@ -1584,23 +1658,18 @@ export default function HomePage() {
 
       {step === "module" && overview && (
         <div className={styles.reportWrap}>
-          <div className={styles.reportHero}>
-            <div>
-              <p className={styles.kicker}>Step 3 · Module explanation</p>
-              <h1 className={styles.reportTitle}>Modules</h1>
-              <p className={styles.metaLine}>
-                Click a module to see how it works
-              </p>
-            </div>
-            <div className={styles.reportActions}>
-              <button type="button" className={styles.btnSecondary} onClick={() => setStep("flow")}>
-                ← Flow
-              </button>
-              <button type="button" className={styles.btnPrimary} onClick={() => setStep("database")}>
-                Next: Database →
-              </button>
-            </div>
-          </div>
+          <ReportStepHero
+            kicker="Step 3 · Module explanation"
+            title="Modules"
+            summary="Click a module below to see how it works — what it does, screens inside, and key rules from this project's code."
+          >
+            <button type="button" className={styles.btnSecondary} onClick={() => setStep("flow")}>
+              ← Flow
+            </button>
+            <button type="button" className={styles.btnPrimary} onClick={() => setStep("database")}>
+              Next: Database →
+            </button>
+          </ReportStepHero>
 
           <Section
             title="Project modules"
@@ -1729,23 +1798,18 @@ export default function HomePage() {
 
       {step === "database" && overview && (
         <div className={styles.reportWrap}>
-          <div className={styles.reportHero}>
-            <div>
-              <p className={styles.kicker}>Step 4 · Live database</p>
-              <h1 className={styles.reportTitle}>Database</h1>
-              <p className={styles.metaLine}>
-                Paste a connection string — schema is read live (password not stored)
-              </p>
-            </div>
-            <div className={styles.reportActions}>
-              <button type="button" className={styles.btnSecondary} onClick={() => setStep("module")}>
-                ← Modules
-              </button>
-              <button type="button" className={styles.btnSecondary} onClick={reset}>
-                New scan
-              </button>
-            </div>
-          </div>
+          <ReportStepHero
+            kicker="Step 4 · Live database"
+            title="Database"
+            summary="Paste a connection string to read the live schema. Passwords are not stored — only a redacted label is kept."
+          >
+            <button type="button" className={styles.btnSecondary} onClick={() => setStep("module")}>
+              ← Modules
+            </button>
+            <button type="button" className={styles.btnSecondary} onClick={reset}>
+              New scan
+            </button>
+          </ReportStepHero>
 
           <Section
             title="Connection"

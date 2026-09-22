@@ -159,6 +159,50 @@ function ModuleTree({ tree, onSelect, selected, clickable }) {
   );
 }
 
+function NavTreeBranch({ node, depth = 0 }) {
+  const kids = node.children || [];
+  return (
+    <div className={styles.navTreeNode} style={{ marginLeft: depth ? 18 : 0 }}>
+      <div className={styles.navTreeRow}>
+        {depth > 0 ? (
+          <span className={styles.navTreeElbow} aria-hidden>
+            └
+          </span>
+        ) : null}
+        <span className={styles.navTreeLabel}>{node.name}</span>
+      </div>
+      {kids.length ? (
+        <div className={styles.navTreeChildren}>
+          {kids.map((c, i) => (
+            <NavTreeBranch key={`${node.name}-${c.name}-${i}`} node={c} depth={depth + 1} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ScreenNavTree({ navigation }) {
+  const tree = navigation?.tree || [];
+  if (!tree.length) {
+    return (
+      <p className={styles.empty}>No screen / route navigation tree proven in this scan.</p>
+    );
+  }
+  return (
+    <div className={styles.navTreeCard}>
+      <div className={styles.navTree}>
+        {tree.map((n, i) => (
+          <NavTreeBranch key={`${n.name}-${i}`} node={n} depth={0} />
+        ))}
+      </div>
+      {navigation?.pattern ? (
+        <p className={styles.navFlowPattern}>{navigation.pattern}</p>
+      ) : null}
+    </div>
+  );
+}
+
 /** Same tree UI for every stack — Flutter / RN / Next / .NET */
 function modulesStepTree(overview) {
   if ((overview?.modules?.featureTree || []).length > 0) {
@@ -911,7 +955,16 @@ async function readJson(res) {
   return data;
 }
 
-const STEPS = ["upload", "overview", "flow", "module", "database"];
+const STEPS = ["upload", "overview", "flow", "module", "database", "access"];
+
+const STEP_LABELS = {
+  upload: "Upload",
+  overview: "Overview",
+  flow: "Flow",
+  module: "Module",
+  database: "Database",
+  access: "Access",
+};
 
 export default function HomePage() {
   const [step, setStep] = useState("upload");
@@ -1046,6 +1099,9 @@ export default function HomePage() {
       });
       const data = await readJson(res);
       setDbAnalysis(data.analysis);
+      if (data.accessNav) {
+        setOverview((prev) => (prev ? { ...prev, accessNav: data.accessNav } : prev));
+      }
       setDbTablePage(1);
       setStep("database");
       setProgress("");
@@ -1095,6 +1151,9 @@ export default function HomePage() {
   );
   const dbTableTotal = dbAnalysis?.tables?.length || 0;
   const dbTableTotalPages = Math.max(1, Math.ceil(dbTableTotal / DB_TABLES_PER_PAGE));
+  const hasDbSignals = (overview?.database || []).length > 0;
+  // Live DB required only when code shows DB signals; otherwise Access uses code scan.
+  const accessUnlocked = Boolean(dbAnalysis) || !hasDbSignals;
   const pagedDbTables = useMemo(() => {
     const list = dbAnalysis?.tables || [];
     const start = (dbTablePage - 1) * DB_TABLES_PER_PAGE;
@@ -1124,7 +1183,7 @@ export default function HomePage() {
             }`}
           >
             <span className={styles.stepNum}>{i + 1}</span>
-            <span className={styles.stepLabel}>{s}</span>
+            <span className={styles.stepLabel}>{STEP_LABELS[s] || s}</span>
           </div>
         ))}
       </nav>
@@ -1140,7 +1199,7 @@ export default function HomePage() {
               Code<span>Atlas</span>
             </h1>
             <p className={styles.lede}>
-              Upload any project zip. Explore overview → flow → modules → database — step by
+              Upload any project zip. Explore overview → flow → modules → database → access — step by
               step.
             </p>
           </div>
@@ -1678,15 +1737,29 @@ export default function HomePage() {
       {step === "database" && overview && (
         <div className={styles.reportWrap}>
           <ReportStepHero
-            kicker="Step 4 · Live database"
+            kicker="Step 5 · Live database"
             title="Database"
-            summary="Paste a connection string to read the live schema. Passwords are not stored — only a redacted label is kept."
+            summary={
+              hasDbSignals
+                ? "Paste a connection string and analyze to unlock Access (roles & permissions from live tables). Passwords are not stored — only a redacted label is kept."
+                : "No database signals in this zip — Access is available from code (roles/permissions/navigation). Optional: still paste a connection string if you have a live DB."
+            }
           >
             <button type="button" className={styles.btnSecondary} onClick={() => setStep("module")}>
               ← Modules
             </button>
-            <button type="button" className={styles.btnSecondary} onClick={reset}>
-              New scan
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              disabled={!accessUnlocked}
+              title={
+                !accessUnlocked
+                  ? "Analyze the database first (this project has database signals in code)"
+                  : undefined
+              }
+              onClick={() => accessUnlocked && setStep("access")}
+            >
+              Next: Access →
             </button>
           </ReportStepHero>
 
@@ -1717,7 +1790,21 @@ export default function HomePage() {
               <p className={styles.dbAnalyzingNote}>
                 Analysis in progress — the button stays disabled until schema reading finishes. Please wait.
               </p>
-            ) : null}
+            ) : !hasDbSignals ? (
+              <p className={styles.dbAnalyzingNote}>
+                No database signals in code — Access is unlocked using roles, permissions, and screen
+                navigation from the zip. Live DB analyze is optional.
+              </p>
+            ) : !dbAnalysis ? (
+              <p className={styles.dbAnalyzingNote}>
+                This project has database signals — Access unlocks after Analyze database (roles from
+                live tables).
+              </p>
+            ) : (
+              <p className={styles.dbAnalyzingNote}>
+                Database analyzed — Access is unlocked for roles, permissions, and screen navigation.
+              </p>
+            )}
           </Section>
 
           {dbAnalysis && (
@@ -1790,6 +1877,130 @@ export default function HomePage() {
                 ))}
               </div>
             </Section>
+          )}
+        </div>
+      )}
+
+      {step === "access" && overview && (
+        <div className={styles.reportWrap}>
+          {!accessUnlocked ? (
+            <>
+              <ReportStepHero
+                kicker="Step 6 · Access & navigation"
+                title="Access"
+                summary="Analyze a live database first so roles and permissions come from real tables — not guesses from code."
+              >
+                <button type="button" className={styles.btnPrimary} onClick={() => setStep("database")}>
+                  ← Go to Database
+                </button>
+                <button type="button" className={styles.btnSecondary} onClick={reset}>
+                  New scan
+                </button>
+              </ReportStepHero>
+              <p className={styles.empty}>
+                Access is locked until you paste a connection string and click Analyze database.
+              </p>
+            </>
+          ) : (
+            <>
+          <ReportStepHero
+            kicker="Step 6 · Access & navigation"
+            title="Access"
+            summary={
+              dbAnalysis
+                ? "Roles and permissions from live database tables when present. Screen navigation is a branched tree from screens/routes in the zip — nothing invented."
+                : "No database signals in this project — roles, permissions, and navigation are from code evidence only (not invented)."
+            }
+          >
+            <button type="button" className={styles.btnSecondary} onClick={() => setStep("database")}>
+              ← Database
+            </button>
+            <button type="button" className={styles.btnSecondary} onClick={reset}>
+              New scan
+            </button>
+          </ReportStepHero>
+
+          <Section
+            title="Roles"
+            subtitle={
+              overview.accessNav?.roleCount
+                ? `${overview.accessNav.roleCount} role(s) from ${overview.accessNav.rolesSource || "scan"}`
+                : dbAnalysis
+                  ? "Distinct values from Role / RoleMaster (or similar) tables in the live DB"
+                  : "Role names from code (enums, Authorize, Role.*) — no live DB"
+            }
+          >
+            {(overview.accessNav?.roles || []).length ? (
+              <div className={styles.chipRow}>
+                {overview.accessNav.roles.map((r, i) => (
+                  <Chip key={`role-${r}-${i}`} tone="accent">
+                    {r}
+                  </Chip>
+                ))}
+              </div>
+            ) : (
+              <p className={styles.empty}>
+                {dbAnalysis
+                  ? "No role values found in live DB tables matching Role / RoleMaster / UserRole."
+                  : "No role names proven in code for this zip."}
+              </p>
+            )}
+          </Section>
+
+          <Section
+            title="Permissions"
+            subtitle={
+              overview.accessNav?.permissionCount
+                ? `${overview.accessNav.permissionCount} permission(s) from ${overview.accessNav.permissionsSource || "scan"}`
+                : dbAnalysis
+                  ? "Distinct values from Permission / UserPermission (or similar) tables"
+                  : "Permission strings / claims from code — no live DB"
+            }
+          >
+            {(overview.accessNav?.permissions || []).length ? (
+              <div className={styles.chipRow}>
+                {overview.accessNav.permissions.map((p, i) => (
+                  <Chip key={`perm-${p}-${i}`} tone="warm">
+                    {p}
+                  </Chip>
+                ))}
+              </div>
+            ) : (
+              <p className={styles.empty}>
+                {dbAnalysis
+                  ? "No permission values found in live DB tables matching Permission / claims."
+                  : "No permission keys proven in code for this zip."}
+              </p>
+            )}
+          </Section>
+
+          <Section
+            title="Screen navigation"
+            subtitle="Branched map from screens / features on disk (like a screen-flow diagram)"
+          >
+            <ScreenNavTree navigation={overview.accessNav?.navigation} />
+          </Section>
+
+          {(overview.accessNav?.notes || []).length > 0 && (
+            <Section title="Notes">
+              <ul>
+                {overview.accessNav.notes.map((n, i) => (
+                  <li key={`access-note-${i}`}>{n}</li>
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          {(overview.accessNav?.evidence || []).length > 0 && (
+            <Section title="Evidence" subtitle="Tables/columns and files used for this step">
+              <ul className={styles.monoList}>
+                {overview.accessNav.evidence.map((e, i) => (
+                  <li key={`access-ev-${i}`}>{e}</li>
+                ))}
+              </ul>
+            </Section>
+          )}
+            </>
           )}
         </div>
       )}

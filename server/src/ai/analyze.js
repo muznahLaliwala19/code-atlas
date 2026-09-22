@@ -7,6 +7,10 @@ import {
 } from "./digest.js";
 import { collectDeepModulesFromDisk } from "./deep-modules.js";
 import { detectArchitectureFromDisk } from "./detect-architecture.js";
+import {
+  collectAccessAndNavigationFromDisk,
+  mergeAccessNavWithDatabase,
+} from "./detect-access-nav.js";
 import { collectMvcStructureFromDisk, buildMvcModuleTree } from "./mvc-scan.js";
 import { buildFeatureModules } from "./feature-modules.js";
 import { ensureCompleteFlow } from "./ensure-flow.js";
@@ -38,6 +42,7 @@ import {
   filterEdgesForTables,
 } from "./prompts.js";
 import { introspectDatabase } from "../db/introspect.js";
+import { extractRolesPermissionsFromDatabase } from "../db/extract-roles-permissions.js";
 import {
   collectApplicationJoinsFromDisk,
   inferColumnPkLinks,
@@ -173,6 +178,21 @@ export async function scanOverviewFromDisk(extractRoot, projectHint) {
     console.warn("[architecture-disk]", e.message);
   }
 
+  let accessNav = null;
+  try {
+    accessNav = await collectAccessAndNavigationFromDisk(extractRoot, {
+      deepModules,
+      featureTree,
+      mvc: mvcStructure,
+      apis: diskApis,
+    });
+    console.log(
+      `[access-nav] roles=${accessNav.roleCount} permissions=${accessNav.permissionCount} screens=${accessNav.navigation?.path?.length || 0}`
+    );
+  } catch (e) {
+    console.warn("[access-nav]", e.message);
+  }
+
   let workingEvidence = {
     menus: [],
     workingModules: [],
@@ -203,6 +223,7 @@ export async function scanOverviewFromDisk(extractRoot, projectHint) {
     summary: "Code scan complete — writing a clearer summary…",
     technologies,
     architecture,
+    accessNav,
     modules: {
       packages: deepModules.packages || [],
       internal: deepModules.internal || [],
@@ -366,6 +387,7 @@ export async function enrichOverviewWithAi(extractRoot, projectHint, diskOvervie
     summary: result.summary || diskOverview?.summary || "",
     technologies,
     architecture: diskOverview?.architecture || null,
+    accessNav: diskOverview?.accessNav || null,
     modules: {
       packages,
       internal,
@@ -808,6 +830,29 @@ export async function aiAnalyzeDatabase(connectionString, overview, extractRoot 
     console.warn("[database] summary page failed:", e.message);
   }
 
+  let rolesPermissions = {
+    roles: [],
+    permissions: [],
+    evidence: [],
+    notes: ["Role/permission extraction did not run."],
+    source: "database",
+  };
+  try {
+    rolesPermissions = await extractRolesPermissionsFromDatabase(connectionString, schema);
+    console.log(
+      `[database] roles=${rolesPermissions.roles?.length || 0} permissions=${rolesPermissions.permissions?.length || 0}`
+    );
+  } catch (e) {
+    console.warn("[database] roles/permissions extract:", e.message);
+    rolesPermissions = {
+      roles: [],
+      permissions: [],
+      evidence: [],
+      notes: [`Could not read role/permission rows: ${e.message}`],
+      source: "database",
+    };
+  }
+
   return {
     ...summaryResult,
     engine: summaryResult.engine || schema.engine,
@@ -816,6 +861,7 @@ export async function aiAnalyzeDatabase(connectionString, overview, extractRoot 
     inferredPkLinks,
     tables,
     entityGroups: Array.isArray(summaryResult.entityGroups) ? summaryResult.entityGroups : [],
+    rolesPermissions,
     schemaPreview: {
       tableCount: schema.tables?.length || 0,
       foreignKeyCount: schema.foreignKeys?.length || 0,

@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import { v4 as uuidv4 } from "uuid";
 import { extractZip, safeRm, clearDirContents, ensureDirSync } from "./extract.js";
 import { aiAnalyzeOverview, aiExplainModule, aiAnalyzeDatabase } from "./ai/analyze.js";
+import { mergeAccessNavWithDatabase } from "./ai/detect-access-nav.js";
 import { getProviderInfo } from "./ai/client.js";
 import config from "./ai/config.js"; // loads server/.env
 import {
@@ -234,7 +235,25 @@ app.post("/api/projects/:id/database/analyze", async (req, res) => {
 
     // Never store raw password-bearing URI in JSON — store redacted label only
     const redacted = redactConnectionString(connectionString);
+
+    let accessNav = record.overview?.accessNav || null;
+    try {
+      accessNav = mergeAccessNavWithDatabase(
+        accessNav,
+        analysis,
+        analysis.rolesPermissions || null
+      );
+    } catch (e) {
+      console.warn("[access-nav-db]", e.message);
+    }
+
+    const overview = {
+      ...(record.overview || {}),
+      accessNav,
+    };
+
     await updateProjectRecord(projectId, {
+      overview,
       databaseAnalysis: {
         ...analysis,
         connectionRedacted: redacted,
@@ -249,6 +268,7 @@ app.post("/api/projects/:id/database/analyze", async (req, res) => {
         ...analysis,
         connectionRedacted: redacted,
       },
+      accessNav,
     });
   } catch (err) {
     console.error("[database]", err);

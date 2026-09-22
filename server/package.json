@@ -1,0 +1,23 @@
+{
+  "name": "codeatlas-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.21.2",
+    "mssql": "^12.7.2",
+    "multer": "^2.3.0",
+    "mysql2": "^3.24.4",
+    "openai": "^7.15.0",
+    "pg": "^8.23.0",
+    "uuid": "^11.1.0",
+    "yauzl": "^2.10.0"
+  }
+}

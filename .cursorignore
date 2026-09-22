@@ -1,0 +1,14 @@
+﻿# Keep Cursor indexing light so workspace state.db stays smaller
+.codeatlas/
+node_modules/
+**/node_modules/
+web/.next/
+web/node_modules/
+server/node_modules/
+server/data/
+data/projects/
+data/
+*.db
+*.zip
+**/*.min.js
+**/*.map

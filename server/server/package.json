@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "yauzl": "^3.4.0"
+  }
+}

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="cGrad" x1="8" y1="6" x2="52" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B8FFE8"/>
+      <stop offset="0.45" stop-color="#5EF0B0"/>
+      <stop offset="1" stop-color="#149A66"/>
+    </linearGradient>
+    <linearGradient id="cDeep" x1="20" y1="28" x2="40" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3DDB9A"/>
+      <stop offset="1" stop-color="#0E7A52"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="1.6" flood-color="#04120c" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Folded map C (transparent bg) -->
+  <g filter="url(#soft)">
+    <path
+      d="M46.5 18.2c-3.2-4.8-9.2-7.7-16.2-7.7-12.2 0-21.3 8.2-21.3 20.6 0 12.5 9.1 20.7 21.3 20.7 7.2 0 13.3-3 16.5-8.1l-6.2-4.1c-1.7 2.6-5 4.3-10.3 4.3-7.4 0-12.6-4.9-12.6-12.8S23.4 18.3 30.8 18.3c5 0 8.3 1.7 10 4.4l5.7-4.5z"
+      fill="url(#cGrad)"
+    />
+    <!-- map folds on lower C -->
+    <path
+      d="M18.2 40.5c2.8 6.2 8.4 9.8 15.1 9.8 4.8 0 8.5-1.4 10.8-3.9l-1.8-7.6c-1.6 1.5-4.1 2.4-7.4 2.4-4.2 0-7.4-1.9-9.1-5.1l-7.6 4.4z"
+      fill="url(#cDeep)"
+      opacity="0.92"
+    />
+    <path d="M20.5 42.2l6.2-3.2M24.2 45.8l5.4-2.8M28.2 48.6l4.6-2.2" stroke="#0B3D2C" stroke-width="1.1" stroke-linecap="round" opacity="0.35"/>
+    <!-- arrow tip -->
+    <path d="M44.2 14.5l11.2-2.4-4.6 10.6-3.2-3.6-3.4-4.6z" fill="url(#cGrad)"/>
+    <path d="M47.2 18.2l8.2-1.6" stroke="#E8FFF6" stroke-width="1.2" stroke-linecap="round" opacity="0.45"/>
+  </g>
+
+  <!-- </> -->
+  <g fill="none" stroke="#F5FFFB" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M26.2 27.2L21.6 32l4.6 4.8"/>
+    <path d="M37.8 27.2L42.4 32l-4.6 4.8"/>
+    <path d="M33.4 25.6l-2.8 12.8" stroke-width="2.2"/>
+  </g>
+</svg>

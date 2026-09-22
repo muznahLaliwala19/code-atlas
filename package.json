@@ -1,0 +1,17 @@
+{
+  "name": "codeatlas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Upload any project folder — detect technologies, modules, APIs, and databases",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev --prefix server\" \"npm run dev --prefix web\"",
+    "dev:api": "npm run dev --prefix server",
+    "dev:web": "npm run dev --prefix web",
+    "install:all": "npm install && npm install --prefix server && npm install --prefix web",
+    "build": "npm run build --prefix web",
+    "start": "concurrently -n api,web -c blue,magenta \"npm start --prefix server\" \"npm start --prefix web\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

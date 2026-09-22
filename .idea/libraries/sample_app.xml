@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="sample-app">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/server/fixtures/sample-app.zip!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
